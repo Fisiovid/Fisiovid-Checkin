@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>FISIOVID — Check-in</title>
+<meta name="theme-color" content="#ea580c" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+<!-- Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Signature Pad -->
+<script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+/* ── Variables ── */
+:root {
+  --brand: #ea580c;
+  --brand-dark: #c2410c;
+  --brand-light: #fff7ed;
+  --ok: #10b981;
+  --warn: #f59e0b;
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface2: #273548;
+  --border: rgba(255,255,255,0.07);
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --radius: 1.25rem;
+}
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ── Ambient glow ── */
+body::before {
+  content: '';
+  position: fixed;
+  top: -40%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80vw;
+  height: 80vw;
+  background: radial-gradient(ellipse, rgba(234,88,12,0.18) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── App shell ── */
+#app {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── Progress bar ── */
+#progress-bar {
+  height: 3px;
+  background: rgba(255,255,255,0.07);
+  flex-shrink: 0;
+}
+#progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand), #fb923c);
+  width: 20%;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1);
+  border-radius: 0 2px 2px 0;
+}
+
+/* ── Header ── */
+#app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem 0.75rem;
+  flex-shrink: 0;
+}
+.logo-mark {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
+  color: var(--brand);
+}
+.logo-mark span { color: var(--muted); font-weight: 400; }
+.step-indicator {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 500;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.3rem 0.75rem;
+  letter-spacing: 0.03em;
+}
+
+/* ── Scroll container ── */
+#screen-container {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+#screen-container::-webkit-scrollbar { display: none; }
+
+/* ── Screens ── */
+.screen {
+  display: none;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1.5rem 1.25rem 6rem;
+  animation: fadeUp 0.35s cubic-bezier(.4,0,.2,1) both;
+}
+.screen.active { display: flex; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Screen: Bienvenida ── */
+.welcome-icon {
+  width: 80px; height: 80px;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  border-radius: 24px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2.2rem;
+  margin-bottom: 1.75rem;
+  box-shadow: 0 12px 40px rgba(234,88,12,0.35);
+}
+.screen-title {
+  font-family: 'Syne', sans-serif;
+  font-weight: 800;
+  font-size: 2rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.75rem;
+}
+.screen-subtitle {
+  font-size: 1rem;
+  color: var(--muted);
+  line-height: 1.6;
+  margin-bottom: 2rem;
+}
+
+/* ── Flow steps (bienvenida) ── */
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-bottom: 2.5rem;
+}
+.flow-step {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  padding: 0.875rem 1rem;
+}
+.flow-step-dot {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(234,88,12,0.15);
+  border: 1.5px solid rgba(234,88,12,0.35);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.85rem;
+}
+.flow-step-text { font-size: 0.875rem; font-weight: 500; color: var(--text); }
+
+/* ── Input ── */
+.field-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+.field-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.125rem;
+  font-size: 1rem;
+  font-family: 'DM Sans', sans-serif;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+  -webkit-appearance: none;
+}
+.field-input:focus { border-color: var(--brand); }
+.field-input::placeholder { color: var(--muted); }
+
+/* ── Patient list ── */
+#pac-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.pac-btn {
+  width: 100%;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.875rem 1.125rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+}
+.pac-btn:hover, .pac-btn:active {
+  border-color: var(--brand);
+  background: rgba(234,88,12,0.08);
+}
+.pac-btn-name { font-size: 0.95rem; font-weight: 600; display: block; }
+.pac-btn-rut  { font-size: 0.75rem; color: var(--muted); display: block; margin-top: 0.2rem; }
+
+/* ── Confirm card ── */
+.confirm-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.confirm-avatar {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+}
+.confirm-name {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+  margin-bottom: 0.2rem;
+}
+.confirm-sub { font-size: 0.85rem; color: var(--muted); }
+
+/* ── Consent text ── */
+.consent-text-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.875rem;
+  padding: 1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.7;
+  max-height: 180px;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+}
+
+/* ── Signature pad ── */
+.sig-container {
+  position: relative;
+  background: var(--surface2);
+  border: 2px dashed rgba(234,88,12,0.4);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 0.75rem;
+  touch-action: none;
+}
+#sig-canvas { width: 100%; height: 160px; display: block; cursor: crosshair; }
+.sig-hint {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 0.82rem; color: rgba(148,163,184,0.5);
+  pointer-events: none; text-align: center;
+}
+
+/* ── NPS buttons ── */
+.nps-grid {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+.nps-btn {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  font-weight: 800;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s;
+  background: transparent;
+}
+.nps-btn.selected { color: white !important; transform: scale(1.2); }
+.nps-label { display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--muted); }
+
+/* ── Stars ── */
+.stars-row { display: flex; gap: 0.375rem; }
+.star {
+  font-size: 2rem;
+  cursor: pointer;
+  color: var(--surface2);
+  transition: color 0.1s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.star.on { color: #f59e0b; transform: scale(1.05); }
+
+/* ── Option chips ── */
+.chips { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.chip {
+  padding: 0.45rem 0.875rem;
+  border: 2px solid var(--border);
+  border-radius: 2rem;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.chip.selected {
+  border-color: var(--brand);
+  background: rgba(234,88,12,0.12);
+  color: #fb923c;
+}
+
+/* ── Section card ── */
+.q-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.125rem;
+  margin-bottom: 0.75rem;
+}
+.q-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 0.625rem;
+}
+
+/* ── Textarea ── */
+.field-textarea {
+  width: 100%;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 0.875rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-family: 'DM Sans', sans-serif;
+  color: var(--text);
+  outline: none;
+  resize: none;
+  -webkit-appearance: none;
+}
+.field-textarea:focus { border-color: var(--brand); }
+.field-textarea::placeholder { color: var(--muted); }
+
+/* ── Ejercicios ── */
+.ejercicio-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 0.625rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.875rem;
+}
+.ejercicio-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  background: rgba(234,88,12,0.15);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.25rem;
+}
+.ejercicio-name { font-size: 0.9rem; font-weight: 600; }
+.ejercicio-meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.2rem; }
+
+/* ── Gracias screen ── */
+.gracias-circle {
+  width: 100px; height: 100px;
+  background: linear-gradient(135deg, var(--ok), #059669);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2.8rem;
+  margin: 0 auto 1.5rem;
+  box-shadow: 0 16px 48px rgba(16,185,129,0.35);
+  animation: popIn 0.5s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes popIn {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* ── Bottom CTA bar ── */
+#cta-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  padding: 0.875rem 1.25rem max(0.875rem, env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--bg) 80%, transparent);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.btn-primary {
+  width: 100%;
+  background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  padding: 1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  box-shadow: 0 8px 24px rgba(234,88,12,0.35);
+  transition: all 0.15s;
+  min-height: 54px;
+}
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary {
+  width: 100%;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  min-height: 36px;
+}
+.btn-ghost {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  font-size: 0.875rem;
+  font-family: 'DM Sans', sans-serif;
+  cursor: pointer;
+  width: 100%;
+  min-height: 44px;
+}
+
+/* ── Toast ── */
+#toast {
+  position: fixed;
+  top: 1rem; left: 50%; transform: translateX(-50%) translateY(-80px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.625rem 1.25rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  z-index: 9999;
+  transition: transform 0.3s cubic-bezier(.4,0,.2,1);
+  white-space: nowrap;
+  pointer-events: none;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ── Error state ── */
+.error-msg {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.8rem;
+  color: #f87171;
+  margin-top: 0.5rem;
+  display: none;
+}
+.error-msg.show { display: block; }
+
+/* ── Loader ── */
+.loader {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.375rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Divider ── */
+.section-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 1.25rem 0;
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Progress -->
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+
+  <!-- Header -->
+  <header id="app-header">
+    <div class="logo-mark">FISIO<span>VID</span></div>
+    <div class="step-indicator" id="step-indicator">Paso 1 de 4</div>
+  </header>
+
+  <!-- Screens -->
+  <div id="screen-container">
+
+    <!-- ─── S1: Bienvenida ─────────────────────────────── -->
+    <section class="screen active" id="s-welcome">
+      <div class="welcome-icon">🏥</div>
+      <h1 class="screen-title" id="welcome-title">¡Bienvenido/a!</h1>
+      <p class="screen-subtitle" id="welcome-sub">Haz tu check-in en segundos desde tu teléfono.</p>
+      <div class="flow-steps">
+        <div class="flow-step">
+          <div class="flow-step-dot">👤</div>
+          <span class="flow-step-text">Confirma tu identidad</span>
+        </div>
+        <div class="flow-step">
+          <div class="flow-step-dot">✍️</div>
+          <span class="flow-step-text">Firma el consentimiento</span>
+        </div>
+        <div class="flow-step">
+          <div class="flow-step-dot">💪</div>
+          <span class="flow-step-text">Ve tus ejercicios del día</span>
+        </div>
+        <div class="flow-step">
+          <div class="flow-step-dot">⭐</div>
+          <span class="flow-step-text">Califica tu sesión (al final)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── S2: Buscar paciente ────────────────────────── -->
+    <section class="screen" id="s-buscar">
+      <h2 class="screen-title" style="font-size:1.6rem; margin-bottom:0.375rem;">¿Quién eres?</h2>
+      <p class="screen-subtitle" style="margin-bottom:1.25rem;">Escribe tu nombre o RUT para buscarte.</p>
+      <label class="field-label" for="search-input">Nombre o RUT</label>
+      <input class="field-input" id="search-input" type="text" placeholder="ej. María López o 12.345.678-9"
+             autocomplete="off" autocorrect="off" spellcheck="false"
+             oninput="filtrarPacientes(this.value)" />
+      <div id="error-notfound" class="error-msg">No encontramos tu nombre. Pide ayuda en recepción.</div>
+      <div id="pac-lista"></div>
+    </section>
+
+    <!-- ─── S3: Confirmar identidad ────────────────────── -->
+    <section class="screen" id="s-confirmar">
+      <h2 class="screen-title" style="font-size:1.6rem; margin-bottom:0.375rem;">¿Eres tú?</h2>
+      <p class="screen-subtitle" style="margin-bottom:1.25rem;">Verifica que los datos son correctos.</p>
+      <div class="confirm-card">
+        <div class="confirm-avatar" id="confirm-avatar">👤</div>
+        <div class="confirm-name" id="confirm-name">—</div>
+        <div class="confirm-sub" id="confirm-sub">—</div>
+      </div>
+    </section>
+
+    <!-- ─── S4: Consentimiento ─────────────────────────── -->
+    <section class="screen" id="s-consentimiento">
+      <h2 class="screen-title" style="font-size:1.5rem; margin-bottom:0.375rem;">✍️ Consentimiento</h2>
+      <p class="screen-subtitle" style="margin-bottom:1rem;">Lee y firma para continuar.</p>
+      <div class="consent-text-box" id="consent-text">
+        Declaro haber sido informado/a de forma clara y comprensible sobre el diagnóstico, los procedimientos de tratamiento de fisioterapia propuestos, sus posibles riesgos, beneficios esperados y alternativas disponibles. Confirmo que he tenido la oportunidad de realizar preguntas y que estas han sido respondidas satisfactoriamente. Autorizo al fisioterapeuta a realizar el tratamiento indicado y entiendo que puedo revocar este consentimiento en cualquier momento sin que ello afecte la calidad de mi atención.
+      </div>
+      <div class="sig-container">
+        <canvas id="sig-canvas"></canvas>
+        <p class="sig-hint" id="sig-hint">✍️ Firma con el dedo aquí</p>
+      </div>
+      <button class="btn-ghost" onclick="limpiarFirma()" style="margin-bottom:5rem;">🗑 Borrar firma</button>
+    </section>
+
+    <!-- ─── S5: Ejercicios ────────────────────────────── -->
+    <section class="screen" id="s-ejercicios">
+      <h2 class="screen-title" style="font-size:1.6rem; margin-bottom:0.375rem;">💪 Tus ejercicios</h2>
+      <p class="screen-subtitle" style="margin-bottom:1.25rem;">Plan asignado para tu sesión de hoy.</p>
+      <div id="ejercicios-lista"></div>
+      <div id="ejercicios-empty" style="display:none; text-align:center; padding: 2rem; color: var(--muted);">
+        <div style="font-size:2.5rem; margin-bottom:0.75rem;">📋</div>
+        <p>No hay ejercicios asignados para esta sesión.</p>
+      </div>
+    </section>
+
+    <!-- ─── S6: NPS / Encuesta ────────────────────────── -->
+    <section class="screen" id="s-nps">
+      <h2 class="screen-title" style="font-size:1.6rem; margin-bottom:0.375rem;">⭐ Tu opinión</h2>
+      <p class="screen-subtitle" style="margin-bottom:1rem;">Solo 2 minutos. Nos ayudas a mejorar.</p>
+
+      <div class="q-card">
+        <div class="q-label">¿Del 0 al 10, nos recomendarías?</div>
+        <div class="nps-grid" id="nps-grid"></div>
+        <div class="nps-label"><span>Nada probable</span><span>Muy probable</span></div>
+      </div>
+
+      <div class="q-card">
+        <div class="q-label">¿Cómo calificarías la atención?</div>
+        <div class="stars-row" id="stars-atencion"></div>
+      </div>
+
+      <div class="q-card">
+        <div class="q-label">¿Notaste mejoría con el tratamiento?</div>
+        <div class="chips" id="chips-mejoria"></div>
+      </div>
+
+      <div class="q-card">
+        <div class="q-label">¿El horario fue conveniente?</div>
+        <div class="chips" id="chips-horario"></div>
+      </div>
+
+      <div class="q-card">
+        <div class="q-label">¿Cómo calificarías las instalaciones?</div>
+        <div class="stars-row" id="stars-instalaciones"></div>
+      </div>
+
+      <div class="q-card">
+        <div class="q-label">Comentario libre (opcional)</div>
+        <textarea class="field-textarea" id="nps-comentario" rows="3"
+                  placeholder="¿Algo que quieras destacar o mejorar?"></textarea>
+      </div>
+
+      <div style="height: 6rem;"></div>
+    </section>
+
+    <!-- ─── S7: Gracias ───────────────────────────────── -->
+    <section class="screen" id="s-gracias">
+      <div style="text-align:center; padding-top:2rem;">
+        <div class="gracias-circle">✓</div>
+        <h2 class="screen-title" style="text-align:center;">¡Listo!</h2>
+        <p class="screen-subtitle" style="text-align:center;">
+          Tu check-in fue registrado.<br>El terapeuta te llamará en breve.
+        </p>
+        <div style="height:1px; background:var(--border); margin:1.5rem 0;"></div>
+        <p style="font-size:0.8rem; color:var(--muted);">Puedes cerrar esta página.</p>
+      </div>
+    </section>
+
+  </div><!-- /screen-container -->
+
+  <!-- Bottom CTA -->
+  <div id="cta-bar">
+    <button class="btn-primary" id="btn-cta" onclick="avanzar()">Comenzar check-in →</button>
+  </div>
+</div><!-- /app -->
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════
+   ⚙️ CONFIGURACIÓN — reemplaza con tus credenciales
+════════════════════════════════════════════════════ */
+const SUPABASE_URL  = 'https://benfgvsyicfvudxvvnpm.supabase.co';    // ← reemplaza
+const SUPABASE_ANON = 'sb_publishable_iQdfVhbslQfNovopH_UaGw_yuWpYJzC';                        // ← reemplaza
+const CLINICA_NOMBRE = 'FISIOVID';
+const CLINICA_BIENVENIDA = 'Bienvenido/a a nuestra clínica de fisioterapia';
+
+/* ════════════════════════════════════════════════════
+   Supabase client
+════════════════════════════════════════════════════ */
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+/* ════════════════════════════════════════════════════
+   Estado global
+════════════════════════════════════════════════════ */
+const SCREENS = ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias'];
+const STEPS   = [1,1,2,3,4,4,4]; // paso visible por pantalla
+const TOTAL_STEPS = 4;
+const CTA_LABELS  = ['Comenzar check-in →','Continuar →','Sí, soy yo ✓','Firmar y continuar →','Ver encuesta →','Enviar encuesta →',''];
+
+let curIdx = 0;
+let pacienteActual = null;
+let sigPad = null;
+let npsVal = -1, starAtencion = 0, chipMejoria = '', chipHorario = '', starInstalaciones = 0;
+
+/* ════════════════════════════════════════════════════
+   Init
+════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('welcome-title').textContent = '¡Bienvenido/a!';
+  document.getElementById('welcome-sub').textContent   = CLINICA_BIENVENIDA;
+  buildNPS();
+  buildStars('stars-atencion',    n => starAtencion = n);
+  buildStars('stars-instalaciones', n => starInstalaciones = n);
+  buildChips('chips-mejoria',  ['Sí, mucho','Algo','No noté cambios'], v => chipMejoria = v);
+  buildChips('chips-horario',  ['Muy conveniente','Aceptable','Difícil para mí'], v => chipHorario = v);
+  updateUI();
+});
+
+/* ════════════════════════════════════════════════════
+   Navegación
+════════════════════════════════════════════════════ */
+function goTo(idx) {
+  SCREENS.forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.classList.toggle('active', i === idx);
+    el.style.display = i === idx ? 'flex' : 'none';
+  });
+  curIdx = idx;
+  updateUI();
+  document.getElementById('screen-container').scrollTo({top:0, behavior:'instant'});
+  // Init signature pad cuando llega a esa pantalla
+  if (SCREENS[idx] === 's-consentimiento') setTimeout(initSigPad, 50);
+  // Cargar ejercicios
+  if (SCREENS[idx] === 's-ejercicios') cargarEjercicios();
+}
+
+function updateUI() {
+  const paso = STEPS[curIdx];
+  document.getElementById('step-indicator').textContent = 
+    curIdx === SCREENS.length - 1 ? '¡Completado!' : `Paso ${paso} de ${TOTAL_STEPS}`;
+  document.getElementById('progress-fill').style.width = 
+    `${Math.round((paso / TOTAL_STEPS) * 100)}%`;
+
+  const btn = document.getElementById('btn-cta');
+  const label = CTA_LABELS[curIdx];
+  btn.style.display = label ? 'block' : 'none';
+  if (label) btn.textContent = label;
+}
+
+async function avanzar() {
+  // Validaciones por pantalla
+  if (curIdx === 1) { // buscar → confirmar
+    if (!pacienteActual) { showToast('Selecciona tu nombre primero'); return; }
+    goTo(2); return;
+  }
+  if (curIdx === 2) { // confirmar → consentimiento
+    goTo(3); return;
+  }
+  if (curIdx === 3) { // consentimiento → ejercicios
+    if (!sigPad || sigPad.isEmpty()) { showToast('Firma el consentimiento para continuar'); return; }
+    await guardarConsentimiento();
+    goTo(4); return;
+  }
+  if (curIdx === 4) { // ejercicios → nps
+    goTo(5); return;
+  }
+  if (curIdx === 5) { // nps → gracias
+    await guardarEncuesta();
+    goTo(6); return;
+  }
+  // default: avanza
+  goTo(curIdx + 1);
+}
+
+/* ════════════════════════════════════════════════════
+   Buscar pacientes (Supabase)
+════════════════════════════════════════════════════ */
+let searchTimeout = null;
+async function filtrarPacientes(q) {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(async () => {
+    const lista = document.getElementById('pac-lista');
+    const err   = document.getElementById('error-notfound');
+    lista.innerHTML = '';
+    err.classList.remove('show');
+    if (q.trim().length < 2) return;
+
+    // Buscar en Supabase
+    const qLower = q.toLowerCase().trim();
+    const { data, error } = await sb
+      .from('fisiovid_pacientes')
+      .select('id, nombre, apellido, rut')
+      .or(`nombre.ilike.%${qLower}%,apellido.ilike.%${qLower}%,rut.ilike.%${qLower}%`)
+      .limit(8);
+
+    if (error || !data || data.length === 0) {
+      err.classList.add('show');
+      return;
+    }
+
+    lista.innerHTML = '';
+    data.forEach(p => {
+      const apellido = p.apellido || '';
+      const inicial  = apellido ? apellido.charAt(0).toUpperCase() + '.' : '';
+      const rut      = p.rut || '';
+      const rutMask  = rut.length > 4 ? rut.slice(0,-4).replace(/./g,'*') + rut.slice(-4) : rut;
+
+      const btn = document.createElement('button');
+      btn.className = 'pac-btn';
+      btn.innerHTML = `<span class="pac-btn-name">${p.nombre} ${inicial}</span><span class="pac-btn-rut">${rutMask}</span>`;
+      btn.onclick = () => seleccionarPaciente(p);
+      lista.appendChild(btn);
+    });
+  }, 300);
+}
+
+function seleccionarPaciente(p) {
+  pacienteActual = p;
+  const nombre = `${p.nombre} ${p.apellido || ''}`.trim();
+  document.getElementById('confirm-name').textContent = nombre;
+  document.getElementById('confirm-sub').textContent  = `RUT: ${p.rut || '—'}`;
+  document.getElementById('confirm-avatar').textContent = nombre.charAt(0).toUpperCase();
+  goTo(2);
+}
+
+/* ════════════════════════════════════════════════════
+   Signature Pad
+════════════════════════════════════════════════════ */
+function initSigPad() {
+  const canvas = document.getElementById('sig-canvas');
+  // Ajustar DPI
+  const ratio = Math.max(window.devicePixelRatio || 1, 1);
+  canvas.width  = canvas.offsetWidth * ratio;
+  canvas.height = canvas.offsetHeight * ratio;
+  canvas.getContext('2d').scale(ratio, ratio);
+
+  sigPad = new SignaturePad(canvas, {
+    minWidth: 1.5,
+    maxWidth: 3,
+    penColor: '#f1f5f9',
+    backgroundColor: 'rgba(0,0,0,0)'
+  });
+  sigPad.addEventListener('beginStroke', () => {
+    document.getElementById('sig-hint').style.display = 'none';
+  });
+}
+
+function limpiarFirma() {
+  if (sigPad) sigPad.clear();
+  document.getElementById('sig-hint').style.display = 'block';
+}
+
+/* ════════════════════════════════════════════════════
+   Guardar Consentimiento en Supabase
+════════════════════════════════════════════════════ */
+async function guardarConsentimiento() {
+  if (!pacienteActual) return;
+  const firmaURL = sigPad ? sigPad.toDataURL('image/png') : '';
+  const nom = `${pacienteActual.nombre} ${pacienteActual.apellido || ''}`.trim();
+
+  const { error } = await sb.from('fisiovid_consentimientos').insert({
+    paciente_id:  pacienteActual.id,
+    paciente:     nom,
+    firma_base64: firmaURL,
+    fecha:        new Date().toISOString(),
+    canal:        'web'
+  });
+
+  if (error) console.warn('Consentimiento:', error.message);
+
+  // Check-in en tiempo real (el quiosco escucha esta tabla)
+  await sb.from('fisiovid_checkins').insert({
+    paciente_id:  pacienteActual.id,
+    nombre:       nom,
+    ts:           new Date().toISOString(),
+    nps:          null,
+    canal:        'web'
+  });
+}
+
+/* ════════════════════════════════════════════════════
+   Cargar ejercicios asignados
+════════════════════════════════════════════════════ */
+async function cargarEjercicios() {
+  const lista = document.getElementById('ejercicios-lista');
+  const empty = document.getElementById('ejercicios-empty');
+  lista.innerHTML = '<div style="color:var(--muted);font-size:0.85rem;padding:1rem;">Cargando...</div>';
+  empty.style.display = 'none';
+
+  if (!pacienteActual) { lista.innerHTML = ''; empty.style.display = 'block'; return; }
+
+  const { data, error } = await sb
+    .from('fisiovid_ejercicios_asignados')
+    .select('nombre, series, repeticiones, descripcion, icono')
+    .eq('paciente_id', pacienteActual.id);
+
+  if (error || !data || data.length === 0) {
+    lista.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  lista.innerHTML = data.map(e => `
+    <div class="ejercicio-card">
+      <div class="ejercicio-icon">${e.icono || '💪'}</div>
+      <div>
+        <div class="ejercicio-name">${e.nombre}</div>
+        <div class="ejercicio-meta">${e.series ? e.series + ' series' : ''} ${e.repeticiones ? '· ' + e.repeticiones + ' reps' : ''}</div>
+        ${e.descripcion ? `<div class="ejercicio-meta" style="margin-top:0.3rem;">${e.descripcion}</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ════════════════════════════════════════════════════
+   NPS & Encuesta builders
+════════════════════════════════════════════════════ */
+function buildNPS() {
+  const grid = document.getElementById('nps-grid');
+  for (let n = 0; n <= 10; n++) {
+    const col = n >= 9 ? '#10b981' : n >= 7 ? '#f59e0b' : '#ef4444';
+    const btn = document.createElement('button');
+    btn.className = 'nps-btn';
+    btn.textContent = n;
+    btn.style.color = col;
+    btn.style.borderColor = col;
+    btn.onclick = () => selectNPS(n);
+    btn.id = `nps-${n}`;
+    grid.appendChild(btn);
+  }
+}
+
+function selectNPS(n) {
+  npsVal = n;
+  for (let i = 0; i <= 10; i++) {
+    const btn = document.getElementById(`nps-${i}`);
+    const col = i >= 9 ? '#10b981' : i >= 7 ? '#f59e0b' : '#ef4444';
+    if (i === n) {
+      btn.classList.add('selected');
+      btn.style.backgroundColor = col;
+      btn.style.borderColor = col;
+    } else {
+      btn.classList.remove('selected');
+      btn.style.backgroundColor = 'transparent';
+      btn.style.color = col;
+      btn.style.borderColor = col;
+    }
+  }
+}
+
+function buildStars(containerId, onChange) {
+  const row = document.getElementById(containerId);
+  for (let i = 1; i <= 5; i++) {
+    const s = document.createElement('span');
+    s.className = 'star';
+    s.textContent = '☆';
+    s.dataset.n = i;
+    s.onclick = () => {
+      onChange(i);
+      row.querySelectorAll('.star').forEach((el, idx) => {
+        el.classList.toggle('on', idx < i);
+        el.textContent = idx < i ? '★' : '☆';
+      });
+    };
+    row.appendChild(s);
+  }
+}
+
+function buildChips(containerId, options, onChange) {
+  const row = document.getElementById(containerId);
+  options.forEach(opt => {
+    const c = document.createElement('button');
+    c.className = 'chip';
+    c.textContent = opt;
+    c.onclick = () => {
+      row.querySelectorAll('.chip').forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      onChange(opt);
+    };
+    row.appendChild(c);
+  });
+}
+
+/* ════════════════════════════════════════════════════
+   Guardar encuesta NPS en Supabase
+════════════════════════════════════════════════════ */
+async function guardarEncuesta() {
+  const btn = document.getElementById('btn-cta');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loader"></span>Guardando...';
+
+  const nom = pacienteActual ? `${pacienteActual.nombre} ${pacienteActual.apellido || ''}`.trim() : 'Paciente web';
+  const comentario = document.getElementById('nps-comentario').value.trim();
+
+  const enc = {
+    paciente_id:     pacienteActual?.id ?? null,
+    paciente:        nom,
+    nps:             npsVal >= 0 ? npsVal : null,
+    q1_atencion:     starAtencion,
+    q2_mejoria:      chipMejoria,
+    q3_horario:      chipHorario,
+    q4_instalaciones: starInstalaciones,
+    comentario,
+    fecha:           new Date().toISOString(),
+    canal:           'web'
+  };
+
+  const { error } = await sb.from('fisiovid_encuestas').insert(enc);
+  if (error) console.warn('Encuesta:', error.message);
+
+  // Actualizar NPS en el checkin
+  if (npsVal >= 0 && pacienteActual) {
+    await sb.from('fisiovid_checkins')
+      .update({ nps: npsVal })
+      .eq('paciente_id', pacienteActual.id)
+      .order('ts', { ascending: false })
+      .limit(1);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Enviar encuesta →';
+}
+
+/* ════════════════════════════════════════════════════
+   Toast
+════════════════════════════════════════════════════ */
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+/* ════════════════════════════════════════════════════
+   Inicializar pantallas al cargar
+════════════════════════════════════════════════════ */
+SCREENS.forEach((id, i) => {
+  const el = document.getElementById(id);
+  el.style.display = i === 0 ? 'flex' : 'none';
+});
+</script>
+
+</body>
+</html>
