@@ -871,16 +871,20 @@ async function guardarConsentimiento() {
 
   if (error) console.error('Consentimiento error:', error.message, error.code);
 
-  // Check-in en tiempo real
-  const { data: chData, error: chError } = await sb.from('fisiovid_checkins').insert({
-    paciente_id: pacienteActual.id,
+  // Check-in — buscar ID real en Supabase por RUT
+  let sbPacienteId = null;
+  if (pacienteActual.rut) {
+    const { data: pRow } = await sb.from('fisiovid_pacientes').select('id').eq('rut', pacienteActual.rut).maybeSingle();
+    if (pRow) sbPacienteId = pRow.id;
+  }
+  const { error: chError } = await sb.from('fisiovid_checkins').insert({
+    paciente_id: sbPacienteId,
     nombre:      nom,
     ts:          new Date().toISOString(),
     nps:         null,
     canal:       'web'
-  }).select();
-  if (chError) { console.error('Checkin error:', chError.message, chError.code, chError.details); }
-  else { console.log('Checkin OK:', chData); }
+  });
+  if (chError) console.error('Checkin error:', chError.message);
 }
 
 /* ════════════════════════════════════════════════════
