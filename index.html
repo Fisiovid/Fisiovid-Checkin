@@ -818,7 +818,9 @@ async function filtrarPacientes(q) {
 }
 
 function seleccionarPaciente(p) {
+  // p.id ya es el ID real de Supabase (viene del SELECT de fisiovid_pacientes)
   pacienteActual = p;
+  pacienteActual.sbId = p.id; // guardar ID real de Supabase
   const nombre = `${p.nombre} ${p.apellido || ''}`.trim();
   document.getElementById('confirm-name').textContent = nombre;
   document.getElementById('confirm-sub').textContent  = `RUT: ${p.rut || '—'}`;
@@ -871,20 +873,17 @@ async function guardarConsentimiento() {
 
   if (error) console.error('Consentimiento error:', error.message, error.code);
 
-  // Check-in — buscar ID real en Supabase por RUT
-  let sbPacienteId = null;
-  if (pacienteActual.rut) {
-    const { data: pRow } = await sb.from('fisiovid_pacientes').select('id').eq('rut', pacienteActual.rut).maybeSingle();
-    if (pRow) sbPacienteId = pRow.id;
-  }
-  const { error: chError } = await sb.from('fisiovid_checkins').insert({
-    paciente_id: sbPacienteId,
+  // Check-in con ID real de Supabase
+  const sbId = pacienteActual.sbId || pacienteActual.id || null;
+  const { data: chData, error: chError } = await sb.from('fisiovid_checkins').insert({
+    paciente_id: sbId,
     nombre:      nom,
     ts:          new Date().toISOString(),
     nps:         null,
     canal:       'web'
-  });
+  }).select('id').single();
   if (chError) console.error('Checkin error:', chError.message);
+  else { pacienteActual.checkinId = chData?.id; } // guardar checkin ID para actualizar NPS después
 }
 
 /* ════════════════════════════════════════════════════
@@ -1001,29 +1000,35 @@ async function guardarEncuesta() {
   const nom = pacienteActual ? `${pacienteActual.nombre} ${pacienteActual.apellido || ''}`.trim() : 'Paciente web';
   const comentario = document.getElementById('nps-comentario').value.trim();
 
+  const sbId = pacienteActual?.sbId || pacienteActual?.id || null;
   const enc = {
-    paciente_id:     pacienteActual?.id ?? null,
-    paciente:        nom,
-    nps:             npsVal >= 0 ? npsVal : null,
-    q1_atencion:     starAtencion,
-    q2_mejoria:      chipMejoria,
-    q3_horario:      chipHorario,
+    paciente_id:      sbId,
+    paciente:         nom,
+    nps:              npsVal >= 0 ? npsVal : null,
+    q1_atencion:      starAtencion,
+    q2_mejoria:       chipMejoria,
+    q3_horario:       chipHorario,
     q4_instalaciones: starInstalaciones,
     comentario,
-    fecha:           new Date().toISOString(),
-    canal:           'web'
+    fecha:            new Date().toISOString(),
+    canal:            'web'
   };
 
   const { error } = await sb.from('fisiovid_encuestas').insert(enc);
   if (error) console.warn('Encuesta:', error.message);
 
-  // Actualizar NPS en el checkin
-  if (npsVal >= 0 && pacienteActual) {
+  // Actualizar NPS en el checkin usando el checkinId guardado
+  if (npsVal >= 0 && pacienteActual?.checkinId) {
     await sb.from('fisiovid_checkins')
       .update({ nps: npsVal })
-      .eq('paciente_id', pacienteActual.id)
-      .order('ts', { ascending: false })
-      .limit(1);
+      .eq('id', pacienteActual.checkinId);
+  } else if (npsVal >= 0 && sbId) {
+    // fallback: buscar el checkin más reciente del paciente de hoy
+    const hoy = new Date().toISOString().split('T')[0];
+    const { data: ch } = await sb.from('fisiovid_checkins')
+      .select('id').eq('paciente_id', sbId)
+      .gte('ts', hoy+'T00:00:00').order('ts', {ascending:false}).limit(1);
+    if (ch && ch[0]) await sb.from('fisiovid_checkins').update({ nps: npsVal }).eq('id', ch[0].id);
   }
 
   btn.disabled = false;
