@@ -869,16 +869,18 @@ async function guardarConsentimiento() {
     canal:        'web'
   });
 
-  if (error) console.warn('Consentimiento:', error.message);
+  if (error) console.error('Consentimiento error:', error.message, error.code);
 
-  // Check-in en tiempo real (el quiosco escucha esta tabla)
-  await sb.from('fisiovid_checkins').insert({
-    paciente_id:  pacienteActual.id,
-    nombre:       nom,
-    ts:           new Date().toISOString(),
-    nps:          null,
-    canal:        'web'
-  });
+  // Check-in en tiempo real
+  const { data: chData, error: chError } = await sb.from('fisiovid_checkins').insert({
+    paciente_id: pacienteActual.id,
+    nombre:      nom,
+    ts:          new Date().toISOString(),
+    nps:         null,
+    canal:       'web'
+  }).select();
+  if (chError) { console.error('Checkin error:', chError.message, chError.code, chError.details); }
+  else { console.log('Checkin OK:', chData); }
 }
 
 /* ════════════════════════════════════════════════════
