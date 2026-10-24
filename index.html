@@ -916,25 +916,37 @@ async function guardarConsentimiento() {
 
 }
 
-/* Registrar llegada (una sola vez por visita) */
+/* Registrar llegada (una sola vez por visita).
+   Se adapta a la tabla: si falta una columna la omite; si no hay permiso de lectura, guarda sin devolver el id. */
 async function registrarCheckin() {
   if (!pacienteActual) return false;
-  if (pacienteActual.checkinId) return true;
+  if (pacienteActual.checkinId || pacienteActual.checkinOk) return true;
   const nom = `${pacienteActual.nombre || ''} ${pacienteActual.apellidos || pacienteActual.apellido || ''}`.trim();
-  const { data, error } = await sb.from('fisiovid_checkins').insert({
-    paciente_id: pacienteActual.sbId || pacienteActual.id || null,
-    nombre:      nom,
-    ts:          new Date().toISOString(),
-    nps:         null,
-    canal:       'web'
-  }).select('id').single();
-  if (error) {
-    console.error('Checkin error:', error.message);
-    showToast('No se pudo registrar tu llegada. Pide ayuda en recepción.');
-    return false;
+  const fila = { paciente_id: pacienteActual.sbId || pacienteActual.id || null, nombre: nom, ts: new Date().toISOString(), nps: null, canal: 'web' };
+  if (CLINICA_ID) fila.user_id = CLINICA_ID;
+  let ultimoError = null;
+  for (let intento = 0; intento < 6; intento++) {
+    let r = await sb.from('fisiovid_checkins').insert(fila).select('id').single();
+    if (!r.error) { pacienteActual.checkinId = r.data?.id; return true; }
+    ultimoError = r.error;
+    const m = (r.error.message || '') + ' ' + (r.error.details || '');
+    const col = /column "?([a-z_]+)"? .*does not exist|Could not find the '([a-z_]+)' column/i.exec(m);
+    if (col && (col[1] || col[2]) && (col[1] || col[2]) in fila) { delete fila[col[1] || col[2]]; continue; }
+    if (/invalid input syntax for type (bigint|integer|uuid)/i.test(m) && 'paciente_id' in fila) { delete fila.paciente_id; continue; }
+    if (/row-level security|permission denied|42501/i.test(m + ' ' + r.error.code)) {
+      // Puede que se permita insertar pero no leer: guardar sin pedir el id de vuelta
+      const r2 = await sb.from('fisiovid_checkins').insert(fila);
+      if (!r2.error) { pacienteActual.checkinOk = true; return true; }
+      ultimoError = r2.error;
+    }
+    break;
   }
-  pacienteActual.checkinId = data?.id;
-  return true;
+  console.error('Checkin error:', ultimoError);
+  const msg = ultimoError?.message || 'error desconocido';
+  showToast(/row-level security|permission/i.test(msg)
+    ? 'Falta dar permiso de registro en Supabase. Pide ayuda en recepción.'
+    : 'No se pudo registrar tu llegada: ' + msg);
+  return false;
 }
 
 /* ════════════════════════════════════════════════════
@@ -1095,7 +1107,7 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+  toastTimer = setTimeout(() => t.classList.remove('show'), msg.length > 60 ? 7000 : 2800);
 }
 
 /* ════════════════════════════════════════════════════
