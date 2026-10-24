@@ -697,10 +697,34 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
 /* ════════════════════════════════════════════════════
    Estado global
 ════════════════════════════════════════════════════ */
-const SCREENS = ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias'];
-const STEPS   = [1,1,2,3,4,4,4]; // paso visible por pantalla
-const TOTAL_STEPS = 4;
-const CTA_LABELS  = ['Comenzar check-in →','Continuar →','Sí, soy yo ✓','Firmar y continuar →','Ver encuesta →','Enviar encuesta →',''];
+/* ════════════════════════════════════════════════════
+   Modos del enlace (el fisioterapeuta envía cada uno cuando corresponde)
+   ?modo=llegada        → QR de recepción: identificarse, registrar llegada y firmar consentimiento si aún no lo hizo
+   ?modo=consentimiento → solo firmar el consentimiento informado
+   ?modo=ejercicios     → ver el plan de ejercicios para casa
+   ?modo=encuesta       → calificar la atención (después de la sesión)
+   &p=<id>              → el paciente ya viene identificado (enlace personal por WhatsApp)
+════════════════════════════════════════════════════ */
+const PARAMS = new URLSearchParams(location.search);
+const MODO = ['llegada','consentimiento','ejercicios','encuesta','completo'].includes((PARAMS.get('modo') || '').toLowerCase()) ? PARAMS.get('modo').toLowerCase() : 'llegada';
+const PRE_P = PARAMS.get('p') || '';
+const PLANES = {
+  llegada:        ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-gracias'],
+  consentimiento: ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-gracias'],
+  ejercicios:     ['s-welcome','s-buscar','s-confirmar','s-ejercicios','s-gracias'],
+  encuesta:       ['s-welcome','s-buscar','s-confirmar','s-nps','s-gracias'],
+  completo:       ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias']
+};
+const SCREENS_ALL = ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias'];
+const SCREENS = PLANES[MODO];
+const TEXTOS = {
+  llegada:        { sub: 'Registra tu llegada en segundos desde tu teléfono.', cta: 'Registrar mi llegada →', pasos: [['👤','Confirma tu identidad'],['✅','Registramos tu llegada'],['✍️','Firma el consentimiento (solo la primera vez)']], fin: 'Tu llegada fue registrada.<br>Toma asiento: el fisioterapeuta te llamará en breve.' },
+  consentimiento: { sub: 'Lee y firma tu consentimiento informado.', cta: 'Comenzar →', pasos: [['👤','Confirma tu identidad'],['📄','Lee el consentimiento'],['✍️','Firma con tu dedo']], fin: 'Tu consentimiento quedó firmado y registrado en tu historia clínica.' },
+  ejercicios:     { sub: 'Revisa tu plan de ejercicios para casa.', cta: 'Ver mis ejercicios →', pasos: [['👤','Confirma tu identidad'],['💪','Revisa tus ejercicios y repeticiones']], fin: 'Realiza tus ejercicios tal como se indicó. Si sientes dolor intenso, detente y consulta a tu fisioterapeuta.' },
+  encuesta:       { sub: 'Cuéntanos cómo fue tu atención. Solo toma 2 minutos.', cta: 'Calificar mi atención →', pasos: [['👤','Confirma tu identidad'],['⭐','Califica tu sesión']], fin: '¡Gracias por tu opinión! Nos ayuda a mejorar tu atención en cada sesión.' },
+  completo:       { sub: 'Haz tu check-in en segundos desde tu teléfono.', cta: 'Comenzar check-in →', pasos: [['👤','Confirma tu identidad'],['✍️','Firma el consentimiento'],['💪','Ve tus ejercicios'],['⭐','Califica tu sesión']], fin: 'Tu check-in fue registrado.<br>El terapeuta te llamará en breve.' }
+};
+const CTA_POR_PANTALLA = { 's-buscar': 'Continuar →', 's-confirmar': 'Sí, soy yo ✓', 's-consentimiento': 'Firmar y continuar →', 's-ejercicios': MODO === 'ejercicios' ? 'Listo ✓' : 'Continuar →', 's-nps': 'Enviar encuesta →', 's-gracias': '' };
 
 let curIdx = 0;
 let pacienteActual = null;
@@ -711,8 +735,14 @@ let npsVal = -1, starAtencion = 0, chipMejoria = '', chipHorario = '', starInsta
    Init
 ════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('welcome-title').textContent = '¡Bienvenido/a!';
-  document.getElementById('welcome-sub').textContent   = CLINICA_BIENVENIDA;
+  const T = TEXTOS[MODO];
+  document.getElementById('welcome-title').textContent = '¡Hola!';
+  document.getElementById('welcome-sub').textContent   = T.sub;
+  const fs = document.querySelector('#s-welcome .flow-steps');
+  if (fs) fs.innerHTML = T.pasos.map(p => `<div class="flow-step"><div class="flow-step-dot">${p[0]}</div><span class="flow-step-text">${p[1]}</span></div>`).join('');
+  const gr = document.querySelector('#s-gracias .screen-subtitle'); if (gr) gr.innerHTML = T.fin;
+  SCREENS_ALL.forEach(id => { if (!SCREENS.includes(id)) { const el = document.getElementById(id); if (el) el.style.display = 'none'; } });
+  if (PRE_P) precargarPaciente(PRE_P);
   buildNPS();
   buildStars('stars-atencion',    n => starAtencion = n);
   buildStars('stars-instalaciones', n => starInstalaciones = n);
@@ -725,61 +755,95 @@ document.addEventListener('DOMContentLoaded', () => {
    Navegación
 ════════════════════════════════════════════════════ */
 function goTo(idx) {
-  SCREENS.forEach((id, i) => {
-    const el = document.getElementById(id);
-    el.classList.toggle('active', i === idx);
-    el.style.display = i === idx ? 'flex' : 'none';
+  idx = Math.max(0, Math.min(idx, SCREENS.length - 1));
+  SCREENS_ALL.forEach(id => {
+    const el = document.getElementById(id); if (!el) return;
+    const on = id === SCREENS[idx];
+    el.classList.toggle('active', on);
+    el.style.display = on ? 'flex' : 'none';
   });
   curIdx = idx;
   updateUI();
   document.getElementById('screen-container').scrollTo({top:0, behavior:'instant'});
-  // Init signature pad cuando llega a esa pantalla
   if (SCREENS[idx] === 's-consentimiento') setTimeout(initSigPad, 50);
-  // Cargar ejercicios
   if (SCREENS[idx] === 's-ejercicios') cargarEjercicios();
 }
+function irA(id) { const i = SCREENS.indexOf(id); if (i > -1) goTo(i); }
 
 function updateUI() {
-  const paso = STEPS[curIdx];
-  document.getElementById('step-indicator').textContent = 
-    curIdx === SCREENS.length - 1 ? '¡Completado!' : `Paso ${paso} de ${TOTAL_STEPS}`;
-  document.getElementById('progress-fill').style.width = 
-    `${Math.round((paso / TOTAL_STEPS) * 100)}%`;
-
+  const total = SCREENS.length - 2, id = SCREENS[curIdx];
+  const paso = Math.max(1, Math.min(curIdx, total));
+  document.getElementById('step-indicator').textContent = id === 's-gracias' ? '¡Completado!' : `Paso ${paso} de ${total}`;
+  document.getElementById('progress-fill').style.width = id === 's-gracias' ? '100%' : `${Math.round((paso / total) * 100)}%`;
   const btn = document.getElementById('btn-cta');
-  const label = CTA_LABELS[curIdx];
+  const label = id === 's-welcome' ? TEXTOS[MODO].cta : CTA_POR_PANTALLA[id];
   btn.style.display = label ? 'block' : 'none';
   if (label) btn.textContent = label;
 }
 
 async function avanzar() {
-  // Validaciones por pantalla
-  if (curIdx === 1) { // buscar → confirmar
-    if (!pacienteActual) { showToast('Selecciona tu nombre primero'); return; }
-    goTo(2); return;
+  const id = SCREENS[curIdx], btn = document.getElementById('btn-cta');
+  if (id === 's-buscar') { if (!pacienteActual) { showToast('Selecciona tu nombre primero'); return; } goTo(curIdx + 1); return; }
+  if (id === 's-confirmar') {
+    btn.disabled = true;
+    try {
+      if (MODO === 'llegada' || MODO === 'completo') {
+        const ok = await registrarCheckin(); if (!ok) return;
+        showToast('✅ Llegada registrada');
+        if (MODO === 'llegada' && await yaFirmoConsentimiento()) { irA('s-gracias'); return; }
+      }
+      goTo(curIdx + 1);
+    } finally { btn.disabled = false; }
+    return;
   }
-  if (curIdx === 2) { // confirmar → registra la llegada y pasa al consentimiento
-    const btn = document.getElementById('btn-cta'); btn.disabled = true;
-    const ok = await registrarCheckin();
+  if (id === 's-consentimiento') {
+    if (!sigPad || sigPad.isEmpty()) { showToast('Firma el consentimiento para continuar'); return; }
+    btn.disabled = true;
+    const ok = await guardarConsentimiento();
     btn.disabled = false;
     if (!ok) return;
-    showToast('✅ Llegada registrada');
-    goTo(3); return;
+    goTo(curIdx + 1); return;
   }
-  if (curIdx === 3) { // consentimiento → ejercicios
-    if (!sigPad || sigPad.isEmpty()) { showToast('Firma el consentimiento para continuar'); return; }
-    await guardarConsentimiento();
-    goTo(4); return;
+  if (id === 's-nps') {
+    if (npsVal < 0 && !starAtencion) { showToast('Elige una calificación del 0 al 10'); return; }
+    const ok = await guardarEncuesta(); if (ok === false) return;
+    goTo(curIdx + 1); return;
   }
-  if (curIdx === 4) { // ejercicios → nps
-    goTo(5); return;
-  }
-  if (curIdx === 5) { // nps → gracias
-    await guardarEncuesta();
-    goTo(6); return;
-  }
-  // default: avanza
   goTo(curIdx + 1);
+}
+
+/* Enlace personal: el paciente llega ya identificado */
+async function precargarPaciente(id) {
+  if (DOC_COL === null) await detectarDoc();
+  const { data, error } = await sb.from('fisiovid_pacientes').select('id, nombre, apellidos' + (DOC_COL ? ', ' + DOC_COL : '')).eq('id', id).limit(1);
+  if (error || !data || !data[0]) return;
+  const p = data[0]; if (DOC_COL && DOC_COL !== 'dni') p.dni = p[DOC_COL];
+  seleccionarPaciente(p);
+}
+async function detectarDoc() {
+  DOC_COL = !(await sb.from('fisiovid_pacientes').select('rut').limit(1)).error ? 'rut'
+          : !(await sb.from('fisiovid_pacientes').select('dni').limit(1)).error ? 'dni' : '';
+}
+async function yaFirmoConsentimiento() {
+  const pid = pacienteActual?.sbId || pacienteActual?.id; if (!pid) return false;
+  const { data, error } = await sb.from('fisiovid_consentimientos').select('id').eq('paciente_id', String(pid)).limit(1);
+  return !error && !!(data && data.length);
+}
+/* Inserta adaptándose a la tabla (omite columnas que no existan) */
+async function insertarAdaptivo(tabla, fila, conId) {
+  fila = Object.assign({}, fila); let err = null;
+  for (let i = 0; i < 8; i++) {
+    const r = conId ? await sb.from(tabla).insert(fila).select('id').single() : await sb.from(tabla).insert(fila);
+    if (!r.error) return { ok: true, id: r.data?.id };
+    err = r.error;
+    const m = (r.error.message || '') + ' ' + (r.error.details || '');
+    const col = /Could not find the '([a-z_0-9]+)' column/i.exec(m) || /column "?([a-z_0-9]+)"? .*does not exist/i.exec(m);
+    if (col && col[1] in fila) { delete fila[col[1]]; continue; }
+    if (/invalid input syntax for type (bigint|integer|uuid)/i.test(m) && 'paciente_id' in fila) { fila.paciente_id = null; delete fila.paciente_id; continue; }
+    if (conId && /row-level security|permission denied/i.test(m)) { conId = false; continue; }
+    break;
+  }
+  return { ok: false, error: err };
 }
 
 /* ════════════════════════════════════════════════════
@@ -802,10 +866,7 @@ async function filtrarPacientes(q) {
     if (!palabras.length) return;
     // dniTexto=false: la columna dni es numérica y no admite búsqueda parcial (se usa igualdad)
     // El documento puede estar en la columna "rut" (sistema) o "dni"
-    if (DOC_COL === null) {
-      DOC_COL = !(await sb.from('fisiovid_pacientes').select('rut').limit(1)).error ? 'rut'
-              : !(await sb.from('fisiovid_pacientes').select('dni').limit(1)).error ? 'dni' : '';
-    }
+    if (DOC_COL === null) await detectarDoc();
     const buscar = async (conClinica, dniTexto) => {
       let consulta = sb.from('fisiovid_pacientes').select('id, nombre, apellidos' + (DOC_COL ? ', ' + DOC_COL : ''));
       palabras.forEach(w => {
@@ -900,20 +961,29 @@ function limpiarFirma() {
    Guardar Consentimiento en Supabase
 ════════════════════════════════════════════════════ */
 async function guardarConsentimiento() {
-  if (!pacienteActual) return;
-  const firmaURL = sigPad ? sigPad.toDataURL('image/png') : '';
+  if (!pacienteActual) return false;
+  /* La firma se guarda en tinta oscura sobre fondo blanco para que se lea en el sistema y al imprimir */
+  let firmaURL = '';
+  try {
+    const src = document.getElementById('sig-canvas'), off = document.createElement('canvas');
+    off.width = src.width; off.height = src.height;
+    const sp2 = new SignaturePad(off, { penColor: '#0f172a', backgroundColor: '#ffffff', minWidth: 1.5, maxWidth: 3 });
+    sp2.fromData(sigPad.toData().map(g => Object.assign({}, g, { penColor: '#0f172a' })));
+    firmaURL = off.toDataURL('image/png');
+  } catch (e) { firmaURL = sigPad ? sigPad.toDataURL('image/png') : ''; }
   const nom = `${pacienteActual.nombre || ''} ${pacienteActual.apellidos || pacienteActual.apellido || ''}`.trim();
-
-  const { error } = await sb.from('fisiovid_consentimientos').insert({
-    paciente_id:  pacienteActual.id,
+  const r = await insertarAdaptivo('fisiovid_consentimientos', {
+    paciente_id:  String(pacienteActual.sbId || pacienteActual.id),
     paciente:     nom,
+    tipo:         'Consentimiento Informado',
+    texto:        (document.getElementById('consent-text')?.innerText || '').trim(),
     firma_base64: firmaURL,
     fecha:        new Date().toISOString(),
-    canal:        'web'
-  });
-
-  if (error) console.error('Consentimiento error:', error.message, error.code);
-
+    canal:        'web',
+    user_id:      CLINICA_ID || undefined
+  }, false);
+  if (!r.ok) { console.error('Consentimiento error:', r.error); showToast('No se pudo guardar tu firma: ' + (r.error?.message || 'error')); return false; }
+  return true;
 }
 
 /* Registrar llegada (una sola vez por visita).
@@ -960,10 +1030,12 @@ async function cargarEjercicios() {
 
   if (!pacienteActual) { lista.innerHTML = ''; empty.style.display = 'block'; return; }
 
-  const { data, error } = await sb
+  let { data, error } = await sb
     .from('fisiovid_ejercicios_asignados')
-    .select('nombre, series, repeticiones, descripcion, icono')
-    .eq('paciente_id', pacienteActual.id);
+    .select('*')
+    .eq('paciente_id', String(pacienteActual.sbId || pacienteActual.id));
+  if (data) data.sort((x, y) => (x.orden || 0) - (y.orden || 0) || String(x.id).localeCompare(String(y.id)));
+  const notas = data && data.find(e => e.notas) ? data.find(e => e.notas).notas : '';
 
   if (error || !data || data.length === 0) {
     lista.innerHTML = '';
@@ -981,6 +1053,7 @@ async function cargarEjercicios() {
       </div>
     </div>
   `).join('');
+  if (notas) lista.insertAdjacentHTML('beforeend', `<div class="ejercicio-card"><div class="ejercicio-icon">📝</div><div><div class="ejercicio-name">Indicaciones</div><div class="ejercicio-meta" style="margin-top:0.3rem;">${String(notas).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</div></div></div>`);
 }
 
 /* ════════════════════════════════════════════════════
@@ -1077,8 +1150,15 @@ async function guardarEncuesta() {
     canal:            'web'
   };
 
-  const { error } = await sb.from('fisiovid_encuestas').insert(enc);
-  if (error) console.warn('Encuesta:', error.message);
+  if (CLINICA_ID) enc.user_id = CLINICA_ID;
+  enc.paciente_id = sbId ? String(sbId) : null;
+  const rEnc = await insertarAdaptivo('fisiovid_encuestas', enc, false);
+  if (!rEnc.ok) {
+    console.warn('Encuesta:', rEnc.error);
+    showToast('No se pudo enviar tu encuesta: ' + (rEnc.error?.message || 'error'));
+    btn.disabled = false; btn.textContent = 'Enviar encuesta →';
+    return false;
+  }
 
   // Actualizar NPS en el checkin usando el checkinId guardado
   if (npsVal >= 0 && pacienteActual?.checkinId) {
