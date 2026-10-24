@@ -796,15 +796,26 @@ async function filtrarPacientes(q) {
     if (q.trim().length < 2) return;
 
     // Buscar en Supabase (mismas columnas que guarda el sistema: nombre, apellidos, dni)
-    const qLower = q.toLowerCase().trim().replace(/[%,()]/g, ' ');
-    let consulta = sb.from('fisiovid_pacientes').select('id, nombre, apellidos, dni')
-      .or(`nombre.ilike.%${qLower}%,apellidos.ilike.%${qLower}%,dni.ilike.%${qLower}%`)
-      .limit(15);
-    if (CLINICA_ID) consulta = consulta.eq('user_id', CLINICA_ID);
-    const { data, error } = await consulta;
-    if (error) console.error('Búsqueda de pacientes:', error.message);
+    // Cada palabra debe aparecer en el nombre, los apellidos o el DNI ("Mario Bustamante" funciona)
+    const palabras = q.toLowerCase().replace(/[%,()*]/g, ' ').split(/\s+/).filter(w => w.length >= 2).slice(0, 4);
+    if (!palabras.length) return;
+    const buscar = async (conClinica) => {
+      let consulta = sb.from('fisiovid_pacientes').select('id, nombre, apellidos, dni');
+      palabras.forEach(w => { consulta = consulta.or(`nombre.ilike.%${w}%,apellidos.ilike.%${w}%,dni.ilike.%${w}%`); });
+      if (conClinica && CLINICA_ID) consulta = consulta.eq('user_id', CLINICA_ID);
+      return await consulta.limit(15);
+    };
+    let { data, error } = await buscar(true);
+    if (!error && (!data || !data.length) && CLINICA_ID) ({ data, error } = await buscar(false));
+    if (error) {
+      console.error('Búsqueda de pacientes:', error.message);
+      err.textContent = 'No pudimos conectar con la clínica. Pide ayuda en recepción.';
+      err.classList.add('show');
+      return;
+    }
+    err.textContent = 'No encontramos tu nombre. Pide ayuda en recepción.';
 
-    if (error || !data || data.length === 0) {
+    if (!data || data.length === 0) {
       err.classList.add('show');
       return;
     }
