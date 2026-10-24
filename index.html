@@ -568,9 +568,9 @@ body::before {
     <!-- ─── S2: Buscar paciente ────────────────────────── -->
     <section class="screen" id="s-buscar">
       <h2 class="screen-title" style="font-size:1.6rem; margin-bottom:0.375rem;">¿Quién eres?</h2>
-      <p class="screen-subtitle" style="margin-bottom:1.25rem;">Escribe tu nombre o RUT para buscarte.</p>
-      <label class="field-label" for="search-input">Nombre o RUT</label>
-      <input class="field-input" id="search-input" type="text" placeholder="ej. María López o 12.345.678-9"
+      <p class="screen-subtitle" style="margin-bottom:1.25rem;">Escribe tu nombre o tu DNI para buscarte.</p>
+      <label class="field-label" for="search-input">Nombre o DNI</label>
+      <input class="field-input" id="search-input" type="text" placeholder="Ej.: María López o tu DNI"
              autocomplete="off" autocorrect="off" spellcheck="false"
              oninput="filtrarPacientes(this.value)" />
       <div id="error-notfound" class="error-msg">No encontramos tu nombre. Pide ayuda en recepción.</div>
@@ -681,14 +681,16 @@ body::before {
 /* ════════════════════════════════════════════════════
    ⚙️ CONFIGURACIÓN — reemplaza con tus credenciales
 ════════════════════════════════════════════════════ */
-const SUPABASE_URL  = 'https://mdyamjeyberksjncltcu.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1keWFtamV5YmVya3NqbmNsdGN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MTIyMTEsImV4cCI6MjA4Nzk4ODIxMX0.0dU1cbSy05vtZLjg2oVrpZBioGubeDJA3RQwRu9KFiU';
+const SUPABASE_URL  = 'https://kuvqqtgbtjgvwykanwba.supabase.co'; // mismo proyecto que el sistema FISIOVID
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1dnFxdGdidGpndnd5a2Fud2JhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MDgwMzUsImV4cCI6MjA5NTE4NDAzNX0.h3AZw3DMbQmP-HB071ssSAL0nXkT1BzjeBrnMBKaj3E';
 const CLINICA_NOMBRE = 'FISIOVID';
 const CLINICA_BIENVENIDA = 'Bienvenido/a a nuestra clínica de fisioterapia';
 
 /* ════════════════════════════════════════════════════
    Supabase client
 ════════════════════════════════════════════════════ */
+/* Clínica: el QR del sistema agrega ?c=<id de clínica> para mostrar solo sus pacientes */
+const CLINICA_ID = new URLSearchParams(location.search).get('c') || '';
 const { createClient } = supabase;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
 
@@ -756,7 +758,12 @@ async function avanzar() {
     if (!pacienteActual) { showToast('Selecciona tu nombre primero'); return; }
     goTo(2); return;
   }
-  if (curIdx === 2) { // confirmar → consentimiento
+  if (curIdx === 2) { // confirmar → registra la llegada y pasa al consentimiento
+    const btn = document.getElementById('btn-cta'); btn.disabled = true;
+    const ok = await registrarCheckin();
+    btn.disabled = false;
+    if (!ok) return;
+    showToast('✅ Llegada registrada');
     goTo(3); return;
   }
   if (curIdx === 3) { // consentimiento → ejercicios
@@ -788,29 +795,36 @@ async function filtrarPacientes(q) {
     err.classList.remove('show');
     if (q.trim().length < 2) return;
 
-    // Buscar en Supabase
-    const qLower = q.toLowerCase().trim();
-    const { data, error } = await sb
-      .from('fisiovid_pacientes')
-      .select('id, nombre, apellido, rut')
-      .or(`nombre.ilike.%${qLower}%,apellido.ilike.%${qLower}%,rut.ilike.%${qLower}%`)
-      .limit(8);
+    // Buscar en Supabase (mismas columnas que guarda el sistema: nombre, apellidos, dni)
+    const qLower = q.toLowerCase().trim().replace(/[%,()]/g, ' ');
+    let consulta = sb.from('fisiovid_pacientes').select('id, nombre, apellidos, dni')
+      .or(`nombre.ilike.%${qLower}%,apellidos.ilike.%${qLower}%,dni.ilike.%${qLower}%`)
+      .limit(15);
+    if (CLINICA_ID) consulta = consulta.eq('user_id', CLINICA_ID);
+    const { data, error } = await consulta;
+    if (error) console.error('Búsqueda de pacientes:', error.message);
 
     if (error || !data || data.length === 0) {
       err.classList.add('show');
       return;
     }
 
+    // Evitar duplicados (mismo nombre, apellidos y DNI)
+    const vistos = new Set();
+    const unicos = data.filter(p => { const k = [p.nombre, p.apellidos, p.dni].join('|').toLowerCase(); if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 8);
+
     lista.innerHTML = '';
-    data.forEach(p => {
-      const apellido = p.apellido || '';
-      const inicial  = apellido ? apellido.charAt(0).toUpperCase() + '.' : '';
-      const rut      = p.rut || '';
-      const rutMask  = rut.length > 4 ? rut.slice(0,-4).replace(/./g,'*') + rut.slice(-4) : rut;
+    unicos.forEach(p => {
+      const apellidos = (p.apellidos || '').trim();
+      const inicial  = apellidos ? apellidos.charAt(0).toUpperCase() + '.' : '';
+      const doc      = String(p.dni || '');
+      const docMask  = doc.length > 4 ? 'DNI ' + doc.slice(0,-4).replace(/./g,'•') + doc.slice(-4) : (doc ? 'DNI ' + doc : '');
 
       const btn = document.createElement('button');
       btn.className = 'pac-btn';
-      btn.innerHTML = `<span class="pac-btn-name">${p.nombre} ${inicial}</span><span class="pac-btn-rut">${rutMask}</span>`;
+      const n1 = document.createElement('span'); n1.className = 'pac-btn-name'; n1.textContent = `${p.nombre || ''} ${inicial}`.trim();
+      const n2 = document.createElement('span'); n2.className = 'pac-btn-rut'; n2.textContent = docMask;
+      btn.appendChild(n1); btn.appendChild(n2);
       btn.onclick = () => seleccionarPaciente(p);
       lista.appendChild(btn);
     });
@@ -821,9 +835,12 @@ function seleccionarPaciente(p) {
   // p.id ya es el ID real de Supabase (viene del SELECT de fisiovid_pacientes)
   pacienteActual = p;
   pacienteActual.sbId = p.id; // guardar ID real de Supabase
-  const nombre = `${p.nombre} ${p.apellido || ''}`.trim();
+  pacienteActual.apellido = p.apellidos || '';
+  pacienteActual.checkinId = null;
+  const nombre = `${p.nombre || ''} ${p.apellidos || ''}`.trim();
+  const doc = String(p.dni || '');
   document.getElementById('confirm-name').textContent = nombre;
-  document.getElementById('confirm-sub').textContent  = `RUT: ${p.rut || '—'}`;
+  document.getElementById('confirm-sub').textContent  = doc ? `DNI: ${doc.length > 4 ? doc.slice(0,-4).replace(/./g,'•') + doc.slice(-4) : doc}` : '—';
   document.getElementById('confirm-avatar').textContent = nombre.charAt(0).toUpperCase();
   goTo(2);
 }
@@ -861,7 +878,7 @@ function limpiarFirma() {
 async function guardarConsentimiento() {
   if (!pacienteActual) return;
   const firmaURL = sigPad ? sigPad.toDataURL('image/png') : '';
-  const nom = `${pacienteActual.nombre} ${pacienteActual.apellido || ''}`.trim();
+  const nom = `${pacienteActual.nombre || ''} ${pacienteActual.apellidos || pacienteActual.apellido || ''}`.trim();
 
   const { error } = await sb.from('fisiovid_consentimientos').insert({
     paciente_id:  pacienteActual.id,
@@ -873,17 +890,27 @@ async function guardarConsentimiento() {
 
   if (error) console.error('Consentimiento error:', error.message, error.code);
 
-  // Check-in con ID real de Supabase
-  const sbId = pacienteActual.sbId || pacienteActual.id || null;
-  const { data: chData, error: chError } = await sb.from('fisiovid_checkins').insert({
-    paciente_id: sbId,
+}
+
+/* Registrar llegada (una sola vez por visita) */
+async function registrarCheckin() {
+  if (!pacienteActual) return false;
+  if (pacienteActual.checkinId) return true;
+  const nom = `${pacienteActual.nombre || ''} ${pacienteActual.apellidos || pacienteActual.apellido || ''}`.trim();
+  const { data, error } = await sb.from('fisiovid_checkins').insert({
+    paciente_id: pacienteActual.sbId || pacienteActual.id || null,
     nombre:      nom,
     ts:          new Date().toISOString(),
     nps:         null,
     canal:       'web'
   }).select('id').single();
-  if (chError) console.error('Checkin error:', chError.message);
-  else { pacienteActual.checkinId = chData?.id; } // guardar checkin ID para actualizar NPS después
+  if (error) {
+    console.error('Checkin error:', error.message);
+    showToast('No se pudo registrar tu llegada. Pide ayuda en recepción.');
+    return false;
+  }
+  pacienteActual.checkinId = data?.id;
+  return true;
 }
 
 /* ════════════════════════════════════════════════════
@@ -997,7 +1024,7 @@ async function guardarEncuesta() {
   btn.disabled = true;
   btn.innerHTML = '<span class="loader"></span>Guardando...';
 
-  const nom = pacienteActual ? `${pacienteActual.nombre} ${pacienteActual.apellido || ''}`.trim() : 'Paciente web';
+  const nom = pacienteActual ? `${pacienteActual.nombre || ''} ${pacienteActual.apellidos || pacienteActual.apellido || ''}`.trim() : 'Paciente web';
   const comentario = document.getElementById('nps-comentario').value.trim();
 
   const sbId = pacienteActual?.sbId || pacienteActual?.id || null;
