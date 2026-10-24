@@ -786,6 +786,7 @@ async function avanzar() {
    Buscar pacientes (Supabase)
 ════════════════════════════════════════════════════ */
 let searchTimeout = null;
+let DOC_COL = null;
 async function filtrarPacientes(q) {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(async () => {
@@ -797,19 +798,30 @@ async function filtrarPacientes(q) {
 
     // Buscar en Supabase (mismas columnas que guarda el sistema: nombre, apellidos, dni)
     // Cada palabra debe aparecer en el nombre, los apellidos o el DNI ("Mario Bustamante" funciona)
-    const palabras = q.toLowerCase().replace(/[%,()*]/g, ' ').split(/\s+/).filter(w => w.length >= 2).slice(0, 4);
+    const palabras = q.toLowerCase().replace(/[%,()*.]/g, ' ').split(/\s+/).filter(w => w.length >= 2).slice(0, 4);
     if (!palabras.length) return;
-    const buscar = async (conClinica) => {
-      let consulta = sb.from('fisiovid_pacientes').select('id, nombre, apellidos, dni');
-      palabras.forEach(w => { consulta = consulta.or(`nombre.ilike.%${w}%,apellidos.ilike.%${w}%,dni.ilike.%${w}%`); });
+    // dniTexto=false: la columna dni es numérica y no admite búsqueda parcial (se usa igualdad)
+    // El documento puede estar en la columna "rut" (sistema) o "dni"
+    if (DOC_COL === null) {
+      DOC_COL = !(await sb.from('fisiovid_pacientes').select('rut').limit(1)).error ? 'rut'
+              : !(await sb.from('fisiovid_pacientes').select('dni').limit(1)).error ? 'dni' : '';
+    }
+    const buscar = async (conClinica, dniTexto) => {
+      let consulta = sb.from('fisiovid_pacientes').select('id, nombre, apellidos' + (DOC_COL ? ', ' + DOC_COL : ''));
+      palabras.forEach(w => {
+        if (/^\d+$/.test(w)) { if (DOC_COL) consulta = dniTexto ? consulta.ilike(DOC_COL, `%${w}%`) : consulta.eq(DOC_COL, w); }
+        else consulta = consulta.or(`nombre.ilike.%${w}%,apellidos.ilike.%${w}%`);
+      });
       if (conClinica && CLINICA_ID) consulta = consulta.eq('user_id', CLINICA_ID);
       return await consulta.limit(15);
     };
-    let { data, error } = await buscar(true);
-    if (!error && (!data || !data.length) && CLINICA_ID) ({ data, error } = await buscar(false));
+    let { data, error } = await buscar(true, true);
+    if (error && /operator|does not exist|bigint|integer|numeric/i.test(error.message || '')) ({ data, error } = await buscar(true, false));
+    if (!error && (!data || !data.length) && CLINICA_ID) ({ data, error } = await buscar(false, true));
+    if (error && /operator|does not exist|bigint|integer|numeric/i.test(error.message || '')) ({ data, error } = await buscar(false, false));
     if (error) {
       console.error('Búsqueda de pacientes:', error.message);
-      err.textContent = 'No pudimos conectar con la clínica. Pide ayuda en recepción.';
+      err.textContent = 'No pudimos conectar con la clínica. Pide ayuda en recepción. (' + (error.message || 'error') + ')';
       err.classList.add('show');
       return;
     }
@@ -821,6 +833,7 @@ async function filtrarPacientes(q) {
     }
 
     // Evitar duplicados (mismo nombre, apellidos y DNI)
+    if (DOC_COL && DOC_COL !== 'dni') data.forEach(p => { p.dni = p[DOC_COL]; });
     const vistos = new Set();
     const unicos = data.filter(p => { const k = [p.nombre, p.apellidos, p.dni].join('|').toLowerCase(); if (vistos.has(k)) return false; vistos.add(k); return true; }).slice(0, 8);
 
