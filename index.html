@@ -645,12 +645,12 @@ body::before {
       </div>
 
       <div class="q-card">
-        <div class="q-label">¿El horario fue conveniente?</div>
+        <div class="q-label" id="q3-label">¿El horario fue conveniente?</div>
         <div class="chips" id="chips-horario"></div>
       </div>
 
       <div class="q-card">
-        <div class="q-label">¿Cómo calificarías las instalaciones?</div>
+        <div class="q-label" id="q4-label">¿Cómo calificarías las instalaciones?</div>
         <div class="stars-row" id="stars-instalaciones"></div>
       </div>
 
@@ -730,6 +730,9 @@ const MODULOS = (PARAMS.get('m') || 'lcen').toLowerCase();
 const BIENVENIDA = (PARAMS.get('b') || '').trim() || CLINICA_BIENVENIDA;
 const NOMBRE_CLINICA = (PARAMS.get('n') || '').trim() || CLINICA_NOMBRE;
 const hecho = {};
+/* Lugar de atención de la cita: local (consultorio) o domicilio (lu=d en el enlace) */
+const LUGAR = (PARAMS.get('lu') || '').toLowerCase().startsWith('d') ? 'domicilio' : 'local';
+const DOM = LUGAR === 'domicilio';
 const PLANES = {
   llegada:        ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-gracias'],
   consentimiento: ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-gracias'],
@@ -741,7 +744,8 @@ const PLANES = {
 const SCREENS_ALL = ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-menu','s-gracias'];
 let SCREENS = PLANES[MODO].slice();
 const TEXTOS = {
-  llegada:        { sub: 'Registra tu llegada en segundos desde tu teléfono.', cta: 'Registrar mi llegada →', pasos: [['👤','Confirma tu identidad'],['✅','Registramos tu llegada'],['✍️','Firma el consentimiento (solo la primera vez)']], fin: 'Tu llegada fue registrada.<br>Toma asiento: el fisioterapeuta te llamará en breve.' },
+  llegada:        DOM ? { sub: '', cta: 'Confirmar la visita →', pasos: [['👤','Confirma tu identidad'],['🏠','Confirma que el fisioterapeuta llegó a tu domicilio'],['✍️','Firma el consentimiento (solo la primera vez)']], fin: 'Registramos el inicio de tu sesión a domicilio.<br>¡Que tengas una excelente sesión!' }
+                      : { sub: 'Registra tu llegada en segundos desde tu teléfono.', cta: 'Registrar mi llegada →', pasos: [['👤','Confirma tu identidad'],['✅','Registramos tu llegada'],['✍️','Firma el consentimiento (solo la primera vez)']], fin: 'Tu llegada fue registrada.<br>Toma asiento: el fisioterapeuta te llamará en breve.' },
   consentimiento: { sub: 'Lee y firma tu consentimiento informado.', cta: 'Comenzar →', pasos: [['👤','Confirma tu identidad'],['📄','Lee el consentimiento'],['✍️','Firma con tu dedo']], fin: 'Tu consentimiento quedó firmado y registrado en tu historia clínica.' },
   ejercicios:     { sub: 'Revisa tu plan de ejercicios para casa.', cta: 'Ver mis ejercicios →', pasos: [['👤','Confirma tu identidad'],['💪','Revisa tus ejercicios y repeticiones']], fin: 'Realiza tus ejercicios tal como se indicó. Si sientes dolor intenso, detente y consulta a tu fisioterapeuta.' },
   encuesta:       { sub: 'Cuéntanos cómo fue tu atención. Solo toma 2 minutos.', cta: 'Calificar mi atención →', pasos: [['👤','Confirma tu identidad'],['⭐','Califica tu sesión']], fin: '¡Gracias por tu opinión! Nos ayuda a mejorar tu atención en cada sesión.' },
@@ -772,6 +776,10 @@ document.addEventListener('DOMContentLoaded', () => {
   buildNPS();
   buildStars('stars-atencion',    n => starAtencion = n);
   buildStars('stars-instalaciones', n => starInstalaciones = n);
+  if (DOM) {
+    document.getElementById('q3-label').textContent = '¿El horario de la visita fue conveniente?';
+    document.getElementById('q4-label').textContent = '¿Cómo calificarías la puntualidad del fisioterapeuta?';
+  }
   buildChips('chips-mejoria',  ['Sí, mucho','Algo','No noté cambios'], v => chipMejoria = v);
   buildChips('chips-horario',  ['Muy conveniente','Aceptable','Difícil para mí'], v => chipHorario = v);
   updateUI();
@@ -795,7 +803,7 @@ function goTo(idx) {
   if (SCREENS[idx] === 's-ejercicios') cargarEjercicios();
 }
 /* Menú: opciones activas para el paciente */
-const OPC = { l: ['📍','Registrar mi llegada','Avisa que ya estás en el consultorio'], c: ['✍️','Firmar consentimiento','Lectura y firma digital'], e: ['💪','Mis ejercicios','Tu plan para casa'], n: ['⭐','Calificar mi atención','Después de tu sesión · 2 minutos'] };
+const OPC = { l: DOM ? ['🏠','Confirmar la visita','El fisioterapeuta llegó a tu domicilio'] : ['📍','Registrar mi llegada','Avisa que ya estás en el consultorio'], c: ['✍️','Firmar consentimiento','Lectura y firma digital'], e: ['💪','Mis ejercicios','Tu plan para casa'], n: ['⭐','Calificar mi atención','Después de tu sesión · 2 minutos'] };
 function pintarMenu() {
   const box = document.getElementById('menu-lista'); if (!box) return;
   const nom = pacienteActual ? (pacienteActual.nombre || '').split(' ')[0] : '';
@@ -812,7 +820,7 @@ async function abrirOpcion(k) {
   if (k === 'l') {
     if (hecho.l) { showToast('Tu llegada ya está registrada'); return; }
     const ok = await registrarCheckin(); if (!ok) return;
-    hecho.l = true; showToast('✅ Llegada registrada'); pintarMenu(); return;
+    hecho.l = true; showToast(DOM ? '✅ Visita confirmada' : '✅ Llegada registrada'); pintarMenu(); return;
   }
   if (k === 'c' && hecho.c) { showToast('Ya firmaste tu consentimiento'); return; }
   if (k === 'n' && hecho.n) { showToast('Ya enviaste tu encuesta. ¡Gracias!'); return; }
@@ -845,7 +853,7 @@ async function avanzar() {
     try {
       if (MODO === 'llegada' || MODO === 'completo') {
         const ok = await registrarCheckin(); if (!ok) return;
-        showToast('✅ Llegada registrada');
+        showToast(DOM ? '✅ Visita confirmada' : '✅ Llegada registrada');
         if (MODO === 'llegada' && (!MODULOS.includes('c') || await yaFirmoConsentimiento())) { irA('s-gracias'); return; }
       }
       goTo(curIdx + 1);
@@ -1050,7 +1058,7 @@ async function registrarCheckin() {
   if (!pacienteActual) return false;
   if (pacienteActual.checkinId || pacienteActual.checkinOk) return true;
   const nom = `${pacienteActual.nombre || ''} ${pacienteActual.apellidos || pacienteActual.apellido || ''}`.trim();
-  const fila = { paciente_id: pacienteActual.sbId || pacienteActual.id || null, nombre: nom, ts: new Date().toISOString(), nps: null, canal: 'web' };
+  const fila = { paciente_id: pacienteActual.sbId || pacienteActual.id || null, nombre: nom, ts: new Date().toISOString(), nps: null, canal: 'web', modalidad: LUGAR };
   if (CLINICA_ID) fila.user_id = CLINICA_ID;
   let ultimoError = null;
   for (let intento = 0; intento < 6; intento++) {
@@ -1094,6 +1102,7 @@ async function cargarEjercicios() {
     .eq('paciente_id', String(pacienteActual.sbId || pacienteActual.id));
   if (data) data.sort((x, y) => (x.orden || 0) - (y.orden || 0) || String(x.id).localeCompare(String(y.id)));
   const notas = data && data.find(e => e.notas) ? data.find(e => e.notas).notas : '';
+  const plan = data && data[0] ? [data[0].frecuencia, data[0].duracion].filter(Boolean).join(' · ') : '';
 
   if (error || !data || data.length === 0) {
     lista.innerHTML = '';
@@ -1111,6 +1120,7 @@ async function cargarEjercicios() {
       </div>
     </div>
   `).join('');
+  if (plan) lista.insertAdjacentHTML('afterbegin', `<div class="ejercicio-card"><div class="ejercicio-icon">📅</div><div><div class="ejercicio-name">Frecuencia del plan</div><div class="ejercicio-meta" style="margin-top:0.3rem;">${String(plan).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</div></div></div>`);
   if (notas) lista.insertAdjacentHTML('beforeend', `<div class="ejercicio-card"><div class="ejercicio-icon">📝</div><div><div class="ejercicio-name">Indicaciones</div><div class="ejercicio-meta" style="margin-top:0.3rem;">${String(notas).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</div></div></div>`);
 }
 
@@ -1203,6 +1213,7 @@ async function guardarEncuesta() {
     q2_mejoria:       chipMejoria,
     q3_horario:       chipHorario,
     q4_instalaciones: starInstalaciones,
+    modalidad:        LUGAR,
     comentario,
     fecha:            new Date().toISOString(),
     canal:            'web'
