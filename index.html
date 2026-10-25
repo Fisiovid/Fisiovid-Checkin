@@ -188,6 +188,16 @@ body::before {
 }
 .flow-step-text { font-size: 0.875rem; font-weight: 500; color: var(--text); }
 
+/* ── Menú de opciones (enlace con varias opciones) ── */
+.menu-opt { width:100%; display:flex; align-items:center; gap:.9rem; text-align:left; background:var(--surface); border:1.5px solid var(--border); border-radius:var(--radius); padding:1rem 1.1rem; color:var(--text); font-family:'DM Sans',sans-serif; cursor:pointer; margin-bottom:.6rem; }
+.menu-opt:active { border-color: var(--brand); }
+.menu-opt .ico { width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; background:rgba(234,88,12,.15); flex-shrink:0; }
+.menu-opt b { display:block; font-size:.98rem; }
+.menu-opt small { display:block; color:var(--muted); font-size:.78rem; margin-top:2px; }
+.menu-opt.hecho { opacity:.6; }
+.menu-opt.hecho .ico { background:rgba(16,185,129,.18); }
+.menu-opt .ok { margin-left:auto; color:#10b981; font-weight:800; font-size:.8rem; }
+
 /* ── Input ── */
 .field-label {
   font-size: 0.75rem;
@@ -653,6 +663,13 @@ body::before {
       <div style="height: 6rem;"></div>
     </section>
 
+    <!-- ─── Menú (enlace con varias opciones) ─────────── -->
+    <section class="screen" id="s-menu">
+      <h2 class="screen-title" style="font-size:1.6rem; margin-bottom:0.375rem;">¿Qué deseas hacer?</h2>
+      <p class="screen-subtitle" style="margin-bottom:1.25rem;" id="menu-sub">Elige una opción. Puedes completar varias.</p>
+      <div id="menu-lista"></div>
+    </section>
+
     <!-- ─── S7: Gracias ───────────────────────────────── -->
     <section class="screen" id="s-gracias">
       <div style="text-align:center; padding-top:2rem;">
@@ -706,25 +723,32 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
    &p=<id>              → el paciente ya viene identificado (enlace personal por WhatsApp)
 ════════════════════════════════════════════════════ */
 const PARAMS = new URLSearchParams(location.search);
-const MODO = ['llegada','consentimiento','ejercicios','encuesta','completo'].includes((PARAMS.get('modo') || '').toLowerCase()) ? PARAMS.get('modo').toLowerCase() : 'llegada';
+const MODO = ['llegada','consentimiento','ejercicios','encuesta','completo','menu'].includes((PARAMS.get('modo') || '').toLowerCase()) ? PARAMS.get('modo').toLowerCase() : 'llegada';
 const PRE_P = PARAMS.get('p') || '';
+/* Opciones activas (configuradas en el sistema): l=llegada, c=consentimiento, e=ejercicios, n=encuesta */
+const MODULOS = (PARAMS.get('m') || 'lcen').toLowerCase();
+const BIENVENIDA = (PARAMS.get('b') || '').trim() || CLINICA_BIENVENIDA;
+const NOMBRE_CLINICA = (PARAMS.get('n') || '').trim() || CLINICA_NOMBRE;
+const hecho = {};
 const PLANES = {
   llegada:        ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-gracias'],
   consentimiento: ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-gracias'],
   ejercicios:     ['s-welcome','s-buscar','s-confirmar','s-ejercicios','s-gracias'],
   encuesta:       ['s-welcome','s-buscar','s-confirmar','s-nps','s-gracias'],
-  completo:       ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias']
+  completo:       ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias'],
+  menu:           ['s-welcome','s-buscar','s-confirmar','s-menu']
 };
-const SCREENS_ALL = ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-gracias'];
-const SCREENS = PLANES[MODO];
+const SCREENS_ALL = ['s-welcome','s-buscar','s-confirmar','s-consentimiento','s-ejercicios','s-nps','s-menu','s-gracias'];
+let SCREENS = PLANES[MODO].slice();
 const TEXTOS = {
   llegada:        { sub: 'Registra tu llegada en segundos desde tu teléfono.', cta: 'Registrar mi llegada →', pasos: [['👤','Confirma tu identidad'],['✅','Registramos tu llegada'],['✍️','Firma el consentimiento (solo la primera vez)']], fin: 'Tu llegada fue registrada.<br>Toma asiento: el fisioterapeuta te llamará en breve.' },
   consentimiento: { sub: 'Lee y firma tu consentimiento informado.', cta: 'Comenzar →', pasos: [['👤','Confirma tu identidad'],['📄','Lee el consentimiento'],['✍️','Firma con tu dedo']], fin: 'Tu consentimiento quedó firmado y registrado en tu historia clínica.' },
   ejercicios:     { sub: 'Revisa tu plan de ejercicios para casa.', cta: 'Ver mis ejercicios →', pasos: [['👤','Confirma tu identidad'],['💪','Revisa tus ejercicios y repeticiones']], fin: 'Realiza tus ejercicios tal como se indicó. Si sientes dolor intenso, detente y consulta a tu fisioterapeuta.' },
   encuesta:       { sub: 'Cuéntanos cómo fue tu atención. Solo toma 2 minutos.', cta: 'Calificar mi atención →', pasos: [['👤','Confirma tu identidad'],['⭐','Califica tu sesión']], fin: '¡Gracias por tu opinión! Nos ayuda a mejorar tu atención en cada sesión.' },
+  menu:           { sub: '', cta: 'Comenzar →', pasos: [['👤','Confirma tu identidad'],['📋','Elige lo que necesitas hacer']], fin: '¡Gracias! Todo quedó registrado en tu historia clínica.' },
   completo:       { sub: 'Haz tu check-in en segundos desde tu teléfono.', cta: 'Comenzar check-in →', pasos: [['👤','Confirma tu identidad'],['✍️','Firma el consentimiento'],['💪','Ve tus ejercicios'],['⭐','Califica tu sesión']], fin: 'Tu check-in fue registrado.<br>El terapeuta te llamará en breve.' }
 };
-const CTA_POR_PANTALLA = { 's-buscar': 'Continuar →', 's-confirmar': 'Sí, soy yo ✓', 's-consentimiento': 'Firmar y continuar →', 's-ejercicios': MODO === 'ejercicios' ? 'Listo ✓' : 'Continuar →', 's-nps': 'Enviar encuesta →', 's-gracias': '' };
+const CTA_POR_PANTALLA = { 's-buscar': 'Continuar →', 's-confirmar': 'Sí, soy yo ✓', 's-consentimiento': MODO === 'menu' ? 'Firmar ✓' : 'Firmar y continuar →', 's-ejercicios': MODO === 'menu' ? '← Volver al menú' : MODO === 'ejercicios' ? 'Listo ✓' : 'Continuar →', 's-nps': 'Enviar encuesta →', 's-menu': 'Terminar ✓', 's-gracias': '' };
 
 let curIdx = 0;
 let pacienteActual = null;
@@ -736,8 +760,10 @@ let npsVal = -1, starAtencion = 0, chipMejoria = '', chipHorario = '', starInsta
 ════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
   const T = TEXTOS[MODO];
-  document.getElementById('welcome-title').textContent = '¡Hola!';
-  document.getElementById('welcome-sub').textContent   = T.sub;
+  document.getElementById('welcome-title').textContent = '¡Bienvenido/a!';
+  document.getElementById('welcome-sub').textContent   = BIENVENIDA;
+  document.title = NOMBRE_CLINICA + ' — ' + (MODO === 'llegada' ? 'Check-in' : 'Paciente');
+  const lg = document.querySelector('.logo-mark'); if (lg && NOMBRE_CLINICA.toUpperCase() !== 'FISIOVID') lg.textContent = NOMBRE_CLINICA;
   const fs = document.querySelector('#s-welcome .flow-steps');
   if (fs) fs.innerHTML = T.pasos.map(p => `<div class="flow-step"><div class="flow-step-dot">${p[0]}</div><span class="flow-step-text">${p[1]}</span></div>`).join('');
   const gr = document.querySelector('#s-gracias .screen-subtitle'); if (gr) gr.innerHTML = T.fin;
@@ -768,12 +794,41 @@ function goTo(idx) {
   if (SCREENS[idx] === 's-consentimiento') setTimeout(initSigPad, 50);
   if (SCREENS[idx] === 's-ejercicios') cargarEjercicios();
 }
+/* Menú: opciones activas para el paciente */
+const OPC = { l: ['📍','Registrar mi llegada','Avisa que ya estás en el consultorio'], c: ['✍️','Firmar consentimiento','Lectura y firma digital'], e: ['💪','Mis ejercicios','Tu plan para casa'], n: ['⭐','Calificar mi atención','Después de tu sesión · 2 minutos'] };
+function pintarMenu() {
+  const box = document.getElementById('menu-lista'); if (!box) return;
+  const nom = pacienteActual ? (pacienteActual.nombre || '').split(' ')[0] : '';
+  document.getElementById('menu-sub').textContent = (nom ? nom + ', e' : 'E') + 'lige una opción. Puedes completar varias.';
+  box.innerHTML = '';
+  'lcen'.split('').filter(k => MODULOS.includes(k)).forEach(k => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'menu-opt' + (hecho[k] ? ' hecho' : '');
+    b.innerHTML = `<span class="ico">${OPC[k][0]}</span><span><b>${OPC[k][1]}</b><small>${OPC[k][2]}</small></span>${hecho[k] ? '<span class="ok">✓ Hecho</span>' : ''}`;
+    b.onclick = () => abrirOpcion(k);
+    box.appendChild(b);
+  });
+}
+async function abrirOpcion(k) {
+  if (k === 'l') {
+    if (hecho.l) { showToast('Tu llegada ya está registrada'); return; }
+    const ok = await registrarCheckin(); if (!ok) return;
+    hecho.l = true; showToast('✅ Llegada registrada'); pintarMenu(); return;
+  }
+  if (k === 'c' && hecho.c) { showToast('Ya firmaste tu consentimiento'); return; }
+  if (k === 'n' && hecho.n) { showToast('Ya enviaste tu encuesta. ¡Gracias!'); return; }
+  const destino = { c: 's-consentimiento', e: 's-ejercicios', n: 's-nps' }[k];
+  SCREENS = ['s-welcome', 's-buscar', 's-confirmar', destino, 's-menu'];
+  if (k === 'e') hecho.e = true;
+  goTo(3);
+}
+
 function irA(id) { const i = SCREENS.indexOf(id); if (i > -1) goTo(i); }
 
 function updateUI() {
-  const total = SCREENS.length - 2, id = SCREENS[curIdx];
+  const id = SCREENS[curIdx], total = MODO === 'menu' ? 3 : SCREENS.length - 2;
   const paso = Math.max(1, Math.min(curIdx, total));
-  document.getElementById('step-indicator').textContent = id === 's-gracias' ? '¡Completado!' : `Paso ${paso} de ${total}`;
+  document.getElementById('step-indicator').textContent = id === 's-gracias' ? '¡Completado!' : id === 's-menu' ? 'Menú' : (MODO === 'menu' && curIdx > 2) ? 'Opción' : `Paso ${paso} de ${total}`;
+  if (id === 's-menu') pintarMenu();
   document.getElementById('progress-fill').style.width = id === 's-gracias' ? '100%' : `${Math.round((paso / total) * 100)}%`;
   const btn = document.getElementById('btn-cta');
   const label = id === 's-welcome' ? TEXTOS[MODO].cta : CTA_POR_PANTALLA[id];
@@ -783,6 +838,7 @@ function updateUI() {
 
 async function avanzar() {
   const id = SCREENS[curIdx], btn = document.getElementById('btn-cta');
+  if (id === 's-menu') { if (!SCREENS.includes('s-gracias')) SCREENS.push('s-gracias'); irA('s-gracias'); return; }
   if (id === 's-buscar') { if (!pacienteActual) { showToast('Selecciona tu nombre primero'); return; } goTo(curIdx + 1); return; }
   if (id === 's-confirmar') {
     btn.disabled = true;
@@ -790,7 +846,7 @@ async function avanzar() {
       if (MODO === 'llegada' || MODO === 'completo') {
         const ok = await registrarCheckin(); if (!ok) return;
         showToast('✅ Llegada registrada');
-        if (MODO === 'llegada' && await yaFirmoConsentimiento()) { irA('s-gracias'); return; }
+        if (MODO === 'llegada' && (!MODULOS.includes('c') || await yaFirmoConsentimiento())) { irA('s-gracias'); return; }
       }
       goTo(curIdx + 1);
     } finally { btn.disabled = false; }
@@ -802,11 +858,13 @@ async function avanzar() {
     const ok = await guardarConsentimiento();
     btn.disabled = false;
     if (!ok) return;
+    if (MODO === 'menu') hecho.c = true;
     goTo(curIdx + 1); return;
   }
   if (id === 's-nps') {
     if (npsVal < 0 && !starAtencion) { showToast('Elige una calificación del 0 al 10'); return; }
     const ok = await guardarEncuesta(); if (ok === false) return;
+    if (MODO === 'menu') hecho.n = true;
     goTo(curIdx + 1); return;
   }
   goTo(curIdx + 1);
